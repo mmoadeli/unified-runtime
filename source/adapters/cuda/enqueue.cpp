@@ -511,10 +511,12 @@ UR_APIEXPORT ur_result_t UR_APICALL urEnqueueKernelLaunch(
     }
 
     auto &ArgIndices = hKernel->getArgIndices();
-    UR_CHECK_ERROR(cuLaunchKernel(
+    auto reslt = cuLaunchKernel(
         CuFunc, BlocksPerGrid[0], BlocksPerGrid[1], BlocksPerGrid[2],
         ThreadsPerBlock[0], ThreadsPerBlock[1], ThreadsPerBlock[2], LocalSize,
-        CuStream, const_cast<void **>(ArgIndices.data()), nullptr));
+        CuStream, const_cast<void **>(ArgIndices.data()), nullptr);
+
+    UR_CHECK_ERROR(reslt);
 
     if (LocalSize != 0)
       hKernel->clearLocalSize();
