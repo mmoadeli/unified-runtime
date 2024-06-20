@@ -511,6 +511,9 @@ UR_APIEXPORT ur_result_t UR_APICALL urEnqueueKernelLaunch(
     }
 
     auto &ArgIndices = hKernel->getArgIndices();
+    unsigned long long streamId = 7;
+    cuStreamGetId(CuStream, &streamId);
+    std::cout << streamId << ":streamId\n"
     auto reslt = cuLaunchKernel(
         CuFunc, BlocksPerGrid[0], BlocksPerGrid[1], BlocksPerGrid[2],
         ThreadsPerBlock[0], ThreadsPerBlock[1], ThreadsPerBlock[2], LocalSize,
