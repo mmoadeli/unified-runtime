@@ -518,7 +518,7 @@ UR_APIEXPORT ur_result_t UR_APICALL urEnqueueKernelLaunch(
         ThreadsPerBlock[0], ThreadsPerBlock[1], ThreadsPerBlock[2], LocalSize,
         CuStream, const_cast<void **>(ArgIndices.data()), nullptr);
 
-    std::cout << streamId << ".." << reslt "\n";
+    std::cout << streamId << ".." << reslt << "\n";
     UR_CHECK_ERROR(reslt);
 
     if (LocalSize != 0)
