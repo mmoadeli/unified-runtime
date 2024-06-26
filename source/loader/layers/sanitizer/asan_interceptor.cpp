@@ -12,6 +12,7 @@
  */
 
 #include "asan_interceptor.hpp"
+#include "asan_options.hpp"
 #include "asan_quarantine.hpp"
 #include "asan_report.hpp"
 #include "asan_shadow_setup.hpp"
@@ -23,15 +24,16 @@ namespace ur_sanitizer_layer {
 namespace {
 
 uptr MemToShadow_CPU(uptr USM_SHADOW_BASE, uptr UPtr) {
-    return USM_SHADOW_BASE + (UPtr >> 3);
+    return USM_SHADOW_BASE + (UPtr >> ASAN_SHADOW_SCALE);
 }
 
 uptr MemToShadow_PVC(uptr USM_SHADOW_BASE, uptr UPtr) {
     if (UPtr & 0xFF00000000000000ULL) { // Device USM
-        return USM_SHADOW_BASE + 0x200000000000ULL +
-               ((UPtr & 0xFFFFFFFFFFFFULL) >> 3);
+        return USM_SHADOW_BASE + 0x80000000000ULL +
+               ((UPtr & 0xFFFFFFFFFFFFULL) >> ASAN_SHADOW_SCALE);
     } else { // Only consider 47bit VA
-        return USM_SHADOW_BASE + ((UPtr & 0x7FFFFFFFFFFFULL) >> 3);
+        return USM_SHADOW_BASE +
+               ((UPtr & 0x7FFFFFFFFFFFULL) >> ASAN_SHADOW_SCALE);
     }
 }
 
@@ -142,65 +144,9 @@ ur_result_t enqueueMemSetShadow(ur_context_handle_t Context,
 } // namespace
 
 SanitizerInterceptor::SanitizerInterceptor() {
-    auto Options = getenv_to_map("UR_LAYER_ASAN_OPTIONS");
-    if (!Options.has_value()) {
-        return;
-    }
-
-    auto KV = Options->find("debug");
-    if (KV != Options->end()) {
-        auto Value = KV->second.front();
-        cl_Debug = Value == "1" || Value == "true" ? 1 : 0;
-    }
-
-    KV = Options->find("redzone");
-    if (KV != Options->end()) {
-        auto Value = KV->second.front();
-        try {
-            cl_MinRZSize = std::stoul(Value);
-            if (cl_MinRZSize < 16) {
-                cl_MinRZSize = 16;
-                context.logger.warning("Trying to set redzone size to a value "
-                                       "less than 16 is ignored");
-            }
-        } catch (...) {
-            die("<SANITIZER>[ERROR]: \"redzone\" should be an integer");
-        }
-    }
-    KV = Options->find("max_redzone");
-    if (KV != Options->end()) {
-        auto Value = KV->second.front();
-        try {
-            cl_MaxRZSize = std::stoul(Value);
-            if (cl_MaxRZSize > 2048) {
-                cl_MaxRZSize = 2048;
-                context.logger.warning("Trying to set max redzone size to a "
-                                       "value greater than 2048 is ignored");
-            }
-        } catch (...) {
-            die("<SANITIZER>[ERROR]: \"max_redzone\" should be an integer");
-        }
-    }
-
-    KV = Options->find("quarantine_size_mb");
-    if (KV != Options->end()) {
-        auto Value = KV->second.front();
-        try {
-            cl_MaxQuarantineSizeMB = std::stoul(Value);
-        } catch (...) {
-            die("<SANITIZER>[ERROR]: \"cl_MaxQuarantineSizeMB\" should be an "
-                "integer");
-        }
-    }
-    if (cl_MaxQuarantineSizeMB) {
-        m_Quarantine =
-            std::make_unique<Quarantine>(cl_MaxQuarantineSizeMB * 1024 * 1024);
-    }
-
-    KV = Options->find("detect_locals");
-    if (KV != Options->end()) {
-        auto Value = KV->second.front();
-        cl_DetectLocals = Value == "1" || Value == "true" ? true : false;
+    if (Options().MaxQuarantineSizeMB) {
+        m_Quarantine = std::make_unique<Quarantine>(
+            static_cast<uint64_t>(Options().MaxQuarantineSizeMB) * 1024 * 1024);
     }
 }
 
@@ -240,7 +186,7 @@ ur_result_t SanitizerInterceptor::allocateMemory(
         Alignment = MinAlignment;
     }
 
-    uptr RZLog = ComputeRZLog(Size, cl_MinRZSize, cl_MaxRZSize);
+    uptr RZLog = ComputeRZLog(Size, Options().MinRZSize, Options().MaxRZSize);
     uptr RZSize = RZLog2Size(RZLog);
     uptr RoundedSize = RoundUpTo(Size, Alignment);
     uptr NeededSize = RoundedSize + RZSize * 2;
@@ -704,7 +650,7 @@ ur_result_t SanitizerInterceptor::prepareLaunch(
             char *ArgPointer = nullptr;
             UR_CALL(MemBuffer->getHandle(DeviceInfo->Handle, ArgPointer));
             ur_result_t URes = context.urDdiTable.Kernel.pfnSetArgPointer(
-                Kernel, ArgIndex, nullptr, &ArgPointer);
+                Kernel, ArgIndex, nullptr, ArgPointer);
             if (URes != UR_RESULT_SUCCESS) {
                 context.logger.error(
                     "Failed to set buffer {} as the {} arg to kernel {}: {}",
@@ -721,7 +667,7 @@ ur_result_t SanitizerInterceptor::prepareLaunch(
                 (void *)LaunchInfo.Data, LaunchInfo.Data->NumLocalArgs,
                 (void *)LaunchInfo.Data->LocalArgs);
             ur_result_t URes = context.urDdiTable.Kernel.pfnSetArgPointer(
-                Kernel, ArgNums - 1, nullptr, &LaunchInfo.Data);
+                Kernel, ArgNums - 1, nullptr, LaunchInfo.Data);
             if (URes != UR_RESULT_SUCCESS) {
                 context.logger.error("Failed to set launch info: {}", URes);
                 return URes;
@@ -745,7 +691,9 @@ ur_result_t SanitizerInterceptor::prepareLaunch(
         };
 
         // Write debug
-        EnqueueWriteGlobal(kSPIR_AsanDebug, &cl_Debug, sizeof(cl_Debug));
+        // We use "uint64_t" here because EnqueueWriteGlobal will fail when it's "uint32_t"
+        uint64_t Debug = Options().Debug ? 1 : 0;
+        EnqueueWriteGlobal(kSPIR_AsanDebug, &Debug, sizeof(Debug));
 
         // Write shadow memory offset for global memory
         EnqueueWriteGlobal(kSPIR_AsanShadowMemoryGlobalStart,
@@ -805,7 +753,7 @@ ur_result_t SanitizerInterceptor::prepareLaunch(
         };
 
         // Write shadow memory offset for local memory
-        if (cl_DetectLocals) {
+        if (Options().DetectLocals) {
             // CPU needn't this
             if (DeviceInfo->Type == DeviceType::GPU_PVC) {
                 size_t LocalMemorySize = GetLocalMemorySize(DeviceInfo->Handle);
@@ -842,7 +790,12 @@ SanitizerInterceptor::findAllocInfoByAddress(uptr Address) {
     if (It == m_AllocationMap.begin()) {
         return std::optional<AllocationIterator>{};
     }
-    return --It;
+    --It;
+    // Make sure we got the right AllocInfo
+    assert(Address >= It->second->AllocBegin &&
+           Address < It->second->AllocBegin + It->second->AllocSize &&
+           "Wrong AllocInfo for the address");
+    return It;
 }
 
 ur_result_t USMLaunchInfo::initialize() {

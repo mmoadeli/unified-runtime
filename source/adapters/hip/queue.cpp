@@ -155,8 +155,10 @@ urQueueCreate(ur_context_handle_t hContext, ur_device_handle_t hDevice,
     return UR_RESULT_SUCCESS;
   } catch (ur_result_t Err) {
     return Err;
+  } catch (std::bad_alloc &) {
+    return UR_RESULT_ERROR_OUT_OF_HOST_MEMORY;
   } catch (...) {
-    return UR_RESULT_ERROR_OUT_OF_RESOURCES;
+    return UR_RESULT_ERROR_UNKNOWN;
   }
 }
 
@@ -191,10 +193,12 @@ UR_APIEXPORT ur_result_t UR_APICALL urQueueGetInfo(ur_queue_handle_t hQueue,
     });
     return ReturnValue(IsReady);
   }
+  case UR_QUEUE_INFO_DEVICE_DEFAULT:
+  case UR_QUEUE_INFO_SIZE:
+    return UR_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
   default:
-    break;
+    return UR_RESULT_ERROR_INVALID_ENUMERATION;
   }
-  return {};
 }
 
 UR_APIEXPORT ur_result_t UR_APICALL urQueueRetain(ur_queue_handle_t hQueue) {
