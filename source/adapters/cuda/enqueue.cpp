@@ -473,6 +473,7 @@ UR_APIEXPORT ur_result_t UR_APICALL urEnqueueKernelLaunch(
         CuFunc, BlocksPerGrid[0], BlocksPerGrid[1], BlocksPerGrid[2],
         ThreadsPerBlock[0], ThreadsPerBlock[1], ThreadsPerBlock[2], LocalSize,
         CuStream, const_cast<void **>(ArgIndices.data()), nullptr));
+    std::cout << "cuLaunchKernel\n";
 
     if (LocalSize != 0)
       hKernel->clearLocalSize();

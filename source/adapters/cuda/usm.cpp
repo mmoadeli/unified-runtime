@@ -159,6 +159,7 @@ ur_result_t USMSharedAllocImpl(void **ResultPtr, ur_context_handle_t Context,
     ScopedContext Active(CommandDevice);
     UR_CHECK_ERROR(cuMemAllocManaged((CUdeviceptr *)ResultPtr, Size,
                                      CU_MEM_ATTACH_GLOBAL));
+    std::cout << "SharedAlloc\n";
     if (getAttribute(CommandDevice,
                      CU_DEVICE_ATTRIBUTE_CONCURRENT_MANAGED_ACCESS)) {
       UR_CHECK_ERROR(cuMemAdvise((CUdeviceptr)*ResultPtr, Size,
