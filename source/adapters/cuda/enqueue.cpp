@@ -438,7 +438,9 @@ UR_APIEXPORT ur_result_t UR_APICALL urEnqueueKernelLaunch(
     return Ret;
 
   try {
+    std::cout << workDim << "11\n";
     std::unique_ptr<ur_event_handle_t_> RetImplEvent{nullptr};
+    std::cout << workDim << "22\n";
 
     ScopedContext Active(hQueue->getDevice());
     uint32_t StreamToken;
